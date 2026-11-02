@@ -15,6 +15,10 @@ FEMA NFIP Redacted Claims v3, filtered to North Carolina: 109,593 claims and
 
 Source: https://www.fema.gov/openfema-data-page/nfip-redacted-claims-v3
 
+Payouts are adjusted to 2025 dollars with the annual average of the Consumer
+Price Index (CPI-U, not seasonally adjusted):
+https://fred.stlouisfed.org/series/CPIAUCNS
+
 ## Project structure
 
 ```
@@ -30,5 +34,6 @@ report/    exported PDF report
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+python src/clean.py
 streamlit run src/app.py
 ```
