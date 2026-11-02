@@ -84,8 +84,11 @@ def clean(df, cpi):
     out = pd.DataFrame({"id": df["id"], "year": df["yearOfLoss"]})
     out["date"] = df["dateOfLoss"].str[:10]
     out["county"] = df["countyCode"]
-    out["latitude"] = df["latitude"]
-    out["longitude"] = df["longitude"]
+
+    # A few coordinates fall far outside North Carolina.
+    in_nc = df["latitude"].between(33.5, 37) & df["longitude"].between(-85, -75)
+    out["latitude"] = df["latitude"].where(in_nc)
+    out["longitude"] = df["longitude"].where(in_nc)
 
     # A blank event name means the claim was not part of a named storm.
     out["event"] = df["floodEvent"].fillna("Unnamed event")
