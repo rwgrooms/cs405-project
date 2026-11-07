@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 import eda
+import models
 import stats
 
 st.set_page_config(page_title="NC Flood Insurance Payouts", layout="centered")
@@ -281,4 +282,74 @@ st.markdown(
     "(eta squared 0.004 to 0.014). The main result holds: high-risk zones do not "
     "get larger payouts, and zone explains little of the variation. That points "
     "to building and flood details, which the models in section 5 use."
+)
+
+# Models
+st.header("5. Predicting payouts")
+
+
+@st.cache_resource
+def run_models():
+    return models.run(df)
+
+
+model_output = run_models()
+st.markdown(
+    "Two models predict the log of payout for paid claims: Linear Regression as "
+    "the baseline and Random Forest as the more advanced model. The proposal also "
+    "named XGBoost, but it was dropped to keep the project to standard "
+    "scikit-learn models. Random Forest already covers a tree-based model.  \n"
+    "**Split by time, not at random:** the models train on claims before Hurricane "
+    f"Florence ({model_output['n_train']:,} claims) and are tested on Florence and "
+    f"everything after it ({model_output['n_test']:,} claims, including Helene). "
+    "A random split would put claims from the same storm in both sets, which makes "
+    "the score look better than it really is. The time split asks the useful "
+    "question: how well does the model do on storms it has never seen?  \n"
+    "**Features:** coverage, building value, water depth, building age, deductible, "
+    "location (latitude and longitude), post-FIRM, elevated, primary residence, "
+    "rental, flood zone group, building type, number of floors and flood cause. "
+    "Missing numbers are filled with the median, and categories are one-hot "
+    "encoded. Elevation difference was left out because half of it is missing. "
+    "Year was left out because a Random Forest cannot predict beyond the years "
+    "it was trained on."
+)
+
+st.subheader("Results on the test storms")
+st.dataframe(model_output["results"])
+st.markdown(
+    "MAE, RMSE and R² are on the log10 scale. A log MAE of 0.5 means a typical "
+    "prediction is off by a factor of about 3. MAE in dollars is the average miss "
+    "in 2025 dollars. The first row is a simple benchmark that predicts the "
+    "training median for every claim."
+)
+st.markdown(
+    "Random Forest does best, with R² of 0.12 against 0.02 for Linear Regression, "
+    "but neither model predicts payouts well. Part of the reason is the time "
+    "split: the test storms paid more (median \\$20,913 against \\$12,114 in "
+    "training), which is why even the median benchmark scores below zero. The rest "
+    "is missing information. The data has no measure of how much of the building "
+    "was damaged, and water depth, the closest thing to one, mixes feet and inches. "
+    "Random Forest trained in a few seconds, so compute time, listed as a "
+    "challenge in the proposal, was not a problem at this size."
+)
+
+st.subheader("What the Random Forest relies on")
+values = models.importance(model_output["models"]["Random Forest"])
+st.pyplot(models.fig_importance(values))
+st.markdown(
+    "Building value and coverage matter most, because they set how much there is "
+    "to lose and the most that can be paid. Building age and location come next. "
+    "Flood zone group ranks near the bottom, which agrees with section 4: the zone "
+    "says little about how much a claim pays. Importance shows what the model "
+    "uses, not what causes larger payouts."
+)
+
+st.subheader("Predicted vs actual")
+st.pyplot(models.fig_predicted(model_output["test"],
+                               model_output["predictions"]["Random Forest"]))
+st.markdown(
+    "Points on the dashed line are perfect predictions. The model pulls everything "
+    "toward the middle: it overpredicts small claims and underpredicts large ones. "
+    "It can tell roughly whether a claim will be small or large, but it should not "
+    "be used to estimate a single claim's payout."
 )
