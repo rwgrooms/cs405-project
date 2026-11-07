@@ -274,8 +274,10 @@ st.dataframe(shown)
 st.markdown(
     "Repeating Test 1 inside each storm removes the storm mix and the dependence "
     "between storms. Zone V has the lowest median in every storm. Low-risk and "
-    "Zone A stay close, except in Helene, where Zone A paid about twice as much "
-    "(Helene had too few Zone V claims to show). Effect sizes stay small "
+    "Zone A are close in Matthew, Florence and unnamed events, but they differ in "
+    "both directions elsewhere: low-risk claims paid about a third more in Floyd, "
+    "and Zone A paid about twice as much in Helene (Helene had too few Zone V "
+    "claims to show). Effect sizes stay small "
     "(eta squared 0.004 to 0.014). The main result holds: high-risk zones do not "
     "get larger payouts, and zone explains little of the variation. That points "
     "to building and flood details, which the models in section 5 use."
