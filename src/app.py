@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 import eda
+import stats
 
 st.set_page_config(page_title="NC Flood Insurance Payouts", layout="centered")
 
@@ -134,7 +135,7 @@ st.pyplot(eda.fig_map(df))
 st.dataframe(eda.county_table(df))
 st.markdown(
     "Claims concentrate along the coast and sounds, led by Dare and New Hanover. "
-    "Buncombe is the inland exception: \$65.5M of its \$91.4M came from Helene."
+    "Buncombe is the inland exception: \\$65.5M of its \\$91.4M came from Helene."
 )
 
 st.subheader("Correlations")
@@ -157,4 +158,125 @@ st.markdown(
     "stayed flat at about \\$11,000 to \\$13,000. The later increases mostly reflect "
     "which storms hit, such as Florence and Helene, not policy changes. This is "
     "a comparison of medians, not proof of cause."
+)
+
+# Statistical analysis
+st.header("4. Statistical analysis")
+st.markdown(
+    "Four tests check the patterns seen in the EDA, each at the 0.05 level. "
+    "Payouts are tested on the log scale because raw payouts are heavily skewed. "
+    "Two cautions apply to all four. First, with tens of thousands of claims even "
+    "tiny differences give very small p-values, so each test also reports an "
+    "effect size, which measures how big the difference is. Second, claims from "
+    "the same storm are not independent, which makes p-values look stronger than "
+    "they are. The last part repeats the main test inside single storms to check this."
+)
+
+
+def p_text(p):
+    return "< 0.001" if p < 0.001 else f"{p:.3f}"
+
+
+anova = stats.zone_anova(df)
+st.subheader("Test 1: Payout by flood zone (one-way ANOVA)")
+st.markdown(
+    "**Null hypothesis:** mean log payout is the same in low-risk zones, Zone A "
+    "and Zone V.  \n"
+    "**Why this test:** it compares the means of one numeric outcome across "
+    "three groups. Log payouts are close to normal, and the groups have similar "
+    "spreads (standard deviations 0.62 to 0.64)."
+)
+col1, col2, col3 = st.columns(3)
+col1.metric("F statistic", f"{anova['statistic']:.1f}")
+col2.metric("p-value", p_text(anova["p_value"]))
+col3.metric("Eta squared", f"{anova['effect']:.3f}")
+st.markdown("Tukey's test compares each pair of zones:")
+pairs = anova["pairs"].copy()
+pairs["p_value"] = pairs["p_value"].map(p_text)
+st.dataframe(pairs, hide_index=True)
+st.markdown(
+    "The null hypothesis is rejected, but zone explains only 0.3% of the variation "
+    "in payouts (eta squared 0.003). Tukey's test shows where the difference is: "
+    "low-risk and Zone A payouts are about the same (p = 0.29), and Zone V payouts "
+    "are about 25% lower than both (the other two zones pay about 1.3 times as much). "
+    "**Answer to the research question:** claims in high-risk zones do not get paid "
+    "more. Zone A pays about the same as low-risk zones, and coastal Zone V pays less."
+)
+
+chi = stats.zone_chi_square(df)
+st.subheader("Test 2: Whether a claim is paid, by flood zone (chi-square)")
+st.markdown(
+    "**Null hypothesis:** the share of claims that get paid is the same in every "
+    "zone group.  \n"
+    "**Why this test:** both variables are categories (paid or not, and zone "
+    "group), and every expected cell count is far above 5 "
+    f"(smallest {chi['min_expected']:,.0f})."
+)
+col1, col2, col3 = st.columns(3)
+col1.metric("Chi-square", f"{chi['statistic']:.0f}")
+col2.metric("p-value", p_text(chi["p_value"]))
+col3.metric("Cramér's V", f"{chi['effect']:.3f}")
+st.dataframe(chi["paid_rate_pct"].rename("paid rate (%)"))
+st.markdown(
+    "The null hypothesis is rejected. Zone A claims are paid most often (75.9%), "
+    "then low-risk zones (70.4%), then Zone V (66.3%). The link is weak "
+    "(Cramér's V 0.07), so zone says little about whether a claim gets paid."
+)
+
+firm = stats.firm_t_test(df)
+st.subheader("Test 3: Post-FIRM vs pre-FIRM buildings (Welch t-test)")
+st.markdown(
+    "A FIRM is the flood map for a community. Post-FIRM buildings were built after "
+    "the map existed, so they had to follow flood-zone building rules.  \n"
+    "**Null hypothesis:** mean log payout is the same for post-FIRM and pre-FIRM "
+    "buildings.  \n"
+    "**Why this test:** it compares the means of two groups. The Welch version "
+    "does not assume equal variances."
+)
+col1, col2, col3 = st.columns(3)
+col1.metric("t statistic", f"{firm['statistic']:.1f}")
+col2.metric("p-value", p_text(firm["p_value"]))
+col3.metric("Cohen's d", f"{firm['effect']:.2f}")
+st.markdown(
+    f"The null hypothesis is rejected. Post-FIRM buildings have a median payout of "
+    f"\\${firm['median_post']:,.0f}, compared with \\${firm['median_pre']:,.0f} for "
+    "pre-FIRM buildings. The effect is small (d = -0.29). This matches the idea "
+    "that newer flood rules reduce damage. But section 3 showed that post-FIRM "
+    "buildings are also much newer (correlation -0.64), so the test cannot separate "
+    "the effect of the building rules from building age."
+)
+
+depth = stats.depth_spearman(df)
+st.subheader("Test 4: Water depth and payout (Spearman correlation)")
+st.markdown(
+    "**Null hypothesis:** there is no monotonic relationship between water depth "
+    "and payout.  \n"
+    "**Why this test:** Spearman uses ranks, so it does not need normal data. "
+    "That matters here because water depth mixes feet and inches, and ranks are "
+    "less affected by the mix than raw values."
+)
+col1, col2, col3 = st.columns(3)
+col1.metric("Spearman rho", f"{depth['statistic']:.2f}")
+col2.metric("p-value", p_text(depth["p_value"]))
+col3.metric("Paid claims with depth", f"{depth['n']:,}")
+st.markdown(
+    "The null hypothesis is rejected: deeper water goes with larger payouts. The "
+    "relationship is weak (rho 0.17), which is partly due to the mixed units. The "
+    "true link is probably stronger than the data can show."
+)
+
+st.subheader("Check: zone comparison inside single storms")
+storm_table = stats.zone_by_storm(df)
+st.pyplot(stats.fig_zone_by_storm(storm_table))
+shown = storm_table.copy()
+shown["p_value"] = shown["p_value"].map(p_text)
+st.dataframe(shown)
+st.markdown(
+    "Repeating Test 1 inside each storm removes the storm mix and the dependence "
+    "between storms. Zone V has the lowest median in every storm. Low-risk and "
+    "Zone A stay close, except in Helene, where Zone A paid about twice as much "
+    "(Helene had too few Zone V claims to show). Effect sizes stay small "
+    "(eta squared 0.004 to 0.014). The main result holds: high-risk zones do not "
+    "get larger payouts, and zone explains little of the variation. That points "
+    "to building and flood details, which the models in section 5 use."
 )
