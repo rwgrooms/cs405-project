@@ -3,6 +3,7 @@
 Run from the project folder:  streamlit run src/app.py
 """
 import json
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -13,7 +14,9 @@ import eda
 import models
 import stats
 
-st.set_page_config(page_title="NC Flood Insurance Payouts", layout="centered")
+print_mode = st.query_params.get("print") == "1"
+st.set_page_config(page_title="NC Flood Insurance Payouts", layout="centered",
+                   initial_sidebar_state="collapsed" if print_mode else "auto")
 
 
 @st.cache_data
@@ -394,6 +397,11 @@ results_summary = (
     + ". Top Random Forest features: building value, coverage, building age."
 )
 
+def dollars(text):
+    """Escape dollar amounts so Streamlit does not read them as math."""
+    return re.sub(r"\$(?=\d)", r"\$", text)
+
+
 st.subheader("Ask the assistant")
 question = st.text_area("Question about the analysis",
                         "What are the main limits of these results?")
@@ -408,7 +416,7 @@ if not api_key:
     st.info("Add a Gemini API key in the sidebar to use the assistant. "
             "The rest of the report works without one.")
 if "answer" in st.session_state:
-    st.markdown(st.session_state["answer"])
+    st.markdown(dollars(st.session_state["answer"]))
 
 st.subheader("Decision log")
 st.markdown(
@@ -422,12 +430,13 @@ st.dataframe(pd.DataFrame(
     [[e["topic"], e["decision"]] for e in ai_log],
     columns=["Decision", "AI advice"]), hide_index=True)
 for entry in ai_log:
-    with st.expander(f"{entry['topic']}: {entry['decision']}"):
+    with st.expander(f"{entry['topic']}: {entry['decision']}",
+                     expanded=print_mode):
         st.markdown(f"**Prompt** ({entry['model']}, {entry['date']})")
         st.text(f"Project results:\n{entry['context']}\n\n"
                 f"Question: {entry['question']}")
         st.markdown("**AI response**")
-        st.markdown(entry["response"])
+        st.markdown(dollars(entry["response"]))
         st.markdown(f"**Evaluation:** {entry['evaluation']}")
         st.markdown(f"**Decision ({entry['decision'].lower()}):** {entry['reason']}")
 st.markdown(
