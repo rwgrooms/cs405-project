@@ -2,9 +2,13 @@
 
 Run from the project folder:  streamlit run src/app.py
 """
+import json
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
+import assistant
 import eda
 import models
 import stats
@@ -77,6 +81,12 @@ st.table(pd.DataFrame([
     ["Zero coverage", "Treated as missing", "Not a real policy amount."],
     ["Dollar amounts", "Converted to 2025 dollars", "Claims span almost 50 years."],
 ], columns=["Item", "Decision", "Reason"]))
+
+st.markdown(
+    "Inflation is adjusted with CPI-U, which tracks consumer prices in "
+    "general. Building repair costs may have risen at a different rate, so "
+    "older payouts in 2025 dollars are an estimate."
+)
 
 st.subheader("Outliers")
 limits = eda.outliers(df)
@@ -352,4 +362,104 @@ st.markdown(
     "toward the middle: it overpredicts small claims and underpredicts large ones. "
     "It can tell roughly whether a claim will be small or large, but it should not "
     "be used to estimate a single claim's payout."
+)
+
+# AI-assisted analysis
+st.header("6. AI-assisted analysis")
+st.markdown(
+    "The app includes an assistant built with LangChain and Google's Gemini API "
+    f"(model `{assistant.MODEL}`). A LangChain prompt template combines a fixed "
+    "instruction, a summary of this project's results and the question, then "
+    "sends it to Gemini and returns the answer as text. Every AI interaction in "
+    "this project went through this workflow, including the decision log below."
+)
+
+st.sidebar.header("AI assistant")
+typed_key = st.sidebar.text_input("Gemini API key", type="password",
+                                  help="Optional if GOOGLE_API_KEY is set.")
+api_key = assistant.get_key(typed_key)
+st.sidebar.caption("Key found." if api_key else "No key: the assistant is off.")
+
+results_summary = (
+    f"{len(df):,} NC building claims, {len(paid):,} paid. Median paid "
+    f"${paid['payment'].median():,.0f} in 2025 dollars. "
+    f"ANOVA of log payout by zone: F {anova['statistic']:.1f}, eta squared "
+    f"{anova['effect']:.3f}; Low risk and Zone A about equal, Zone V about 25% lower. "
+    f"Chi-square paid vs zone {chi['statistic']:.0f}, Cramer's V {chi['effect']:.2f}. "
+    f"Post-FIRM vs pre-FIRM Welch t {firm['statistic']:.1f}, d {firm['effect']:.2f}. "
+    f"Spearman water depth vs payout {depth['statistic']:.2f}. "
+    "Models on log10 payout, trained before Florence and tested Florence onward: "
+    + "; ".join(f"{name} R2 {row['R2']:.2f}"
+                for name, row in model_output["results"].iterrows())
+    + ". Top Random Forest features: building value, coverage, building age."
+)
+
+st.subheader("Ask the assistant")
+question = st.text_area("Question about the analysis",
+                        "What are the main limits of these results?")
+if st.button("Ask", disabled=not api_key):
+    with st.spinner("Asking Gemini..."):
+        try:
+            st.session_state["answer"] = assistant.ask(question, results_summary,
+                                                       api_key)
+        except Exception as error:
+            st.session_state["answer"] = f"The request failed: {error}"
+if not api_key:
+    st.info("Add a Gemini API key in the sidebar to use the assistant. "
+            "The rest of the report works without one.")
+if "answer" in st.session_state:
+    st.markdown(st.session_state["answer"])
+
+st.subheader("Decision log")
+st.markdown(
+    "Each major data preparation and analysis decision was put to the assistant "
+    "through the workflow above (src/ai_log.py). For each one the log shows the "
+    "prompt, the answer, an evaluation of the answer, and whether the advice was "
+    "accepted, modified or rejected."
+)
+ai_log = json.loads(Path("data/ai_log.json").read_text(encoding="utf-8"))
+st.dataframe(pd.DataFrame(
+    [[e["topic"], e["decision"]] for e in ai_log],
+    columns=["Decision", "AI advice"]), hide_index=True)
+for entry in ai_log:
+    with st.expander(f"{entry['topic']}: {entry['decision']}"):
+        st.markdown(f"**Prompt** ({entry['model']}, {entry['date']})")
+        st.text(f"Project results:\n{entry['context']}\n\n"
+                f"Question: {entry['question']}")
+        st.markdown("**AI response**")
+        st.markdown(entry["response"])
+        st.markdown(f"**Evaluation:** {entry['evaluation']}")
+        st.markdown(f"**Decision ({entry['decision'].lower()}):** {entry['reason']}")
+st.markdown(
+    "Across the eight decisions the advice was accepted twice and modified six "
+    "times. The assistant was most useful on standard method choices, such as "
+    "the test and the train/test split. It was weakest where the answer depended "
+    "on knowing the data or the domain: it was too cautious about water depth and "
+    "outliers, and it missed both the large-sample p-value problem and the reason "
+    "year cannot be a feature."
+)
+
+# Conclusions
+st.header("7. Conclusions")
+st.markdown(
+    "**Do high-risk zones get paid more?** No. Among paid claims, Zone A pays "
+    "about the same as low-risk zones, and coastal Zone V pays about 25% less. "
+    "Zone V also has the lowest median inside every storm, so the result is not "
+    "just a mix of storms. Zone explains well under 2% of the variation in payouts.  \n"
+    "**What predicts payouts?** Building value and coverage, which set how much "
+    "can be lost and paid, then building age, location and water depth. Post-FIRM "
+    "buildings are paid less, but that cannot be separated from building age.  \n"
+    "**How well can payouts be predicted?** Not well. The Random Forest reaches "
+    "R² 0.12 on storms it has not seen, against 0.02 for Linear Regression. It "
+    "can tell small claims from large ones roughly, but not estimate a single claim.  \n"
+    "**Over time:** median payouts rose, but outside named storms they have been "
+    "flat since the 1994 reform. The rise mostly reflects which storms hit."
+)
+st.markdown(
+    "**Limits.** Water depth mixes feet and inches. Building value is missing "
+    "mostly on unpaid claims. CPI-U may not track repair costs. The data has no "
+    "measure of how much of a building was damaged, which is likely the biggest "
+    "missing driver. Claims within a storm are not independent.  \n"
+    "**Next steps.** Add storm-level data such as rainfall or surge height, and "
+    "test whether a damage measure, where available, raises the model's accuracy."
 )
